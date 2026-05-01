@@ -2,179 +2,131 @@ const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const mongoose = require('mongoose');
-require('dotenv').config();
 
 const app = express();
+const PORT = process.env.PORT || 3000;
+const JWT_SECRET = process.env.JWT_SECRET || 'supersecret123';
 
-// 🔥 SIMPLE MIDDLEWARE
-app.use(cors({ origin: '*' }));  // Allow all origins
-app.use(express.json());
+// Middleware - Works on Vercel + Local
+app.use(cors({ origin: true }));
+app.use(express.json({ limit: '10mb' }));
 app.use(express.static('public'));
 
-// 🔥 IN-MEMORY DB (No MongoDB needed)
+// In-memory users (No DB needed)
 let users = [];
 
-// Routes
+// 🧪 TEST API
 app.get('/api/test', (req, res) => {
   res.json({ 
-    status: '✅ SERVER WORKING PERFECTLY!', 
-    time: new Date().toLocaleString(),
-    users: users.length
+    status: '✅ SERVER 100% WORKING!',
+    environment: process.env.NODE_ENV || 'development',
+    url: req.headers.host,
+    users: users.length,
+    timestamp: new Date().toISOString()
   });
 });
 
+// 📝 REGISTER
 app.post('/api/register', async (req, res) => {
-  const { email, password, name } = req.body;
+  console.log('📝 Register:', req.body.email);
   
-  // Check if exists
-  const exists = users.find(u => u.email === email.toLowerCase());
-  if (exists) {
+  const { email, password, name = 'User' } = req.body;
+  
+  // Check duplicate
+  if (users.find(u => u.email === email.toLowerCase())) {
     return res.json({ error: 'Email already exists' });
   }
   
   // Hash password
-  const hashed = await bcrypt.hash(password, 10);
+  const hashedPassword = await bcrypt.hash(password, 10);
   
   // Create user
   const user = {
     id: Date.now().toString(),
     email: email.toLowerCase(),
-    password: hashed,
-    name: name || 'User',
+    password: hashedPassword,
+    name,
     subscription: { status: 'trial', plan: 'starter' }
   };
   
   users.push(user);
   
-  const token = jwt.sign({ id: user.id }, 'supersecret', { expiresIn: '30d' });
-  res.json({ 
+  // Generate token
+  const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '30d' });
+  
+  res.json({
     success: true,
-    token, 
-    user: { id: user.id, email: user.email, name: user.name, subscription: user.subscription }
+    token,
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      subscription: user.subscription
+    }
   });
 });
 
+// 🔐 LOGIN
 app.post('/api/login', async (req, res) => {
+  console.log('🔐 Login:', req.body.email);
+  
   const { email, password } = req.body;
   
+  // Find user
   const user = users.find(u => u.email === email.toLowerCase());
   if (!user) {
     return res.json({ error: 'Invalid email or password' });
   }
   
-  const valid = await bcrypt.compare(password, user.password);
-  if (!valid) {
+  // Verify password
+  const isValid = await bcrypt.compare(password, user.password);
+  if (!isValid) {
     return res.json({ error: 'Invalid email or password' });
   }
   
-  const token = jwt.sign({ id: user.id }, 'supersecret', { expiresIn: '30d' });
-  res.json({ 
+  // Generate token
+  const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '30d' });
+  
+  res.json({
     success: true,
-    token, 
-    user: { id: user.id, email: user.email, name: user.name, subscription: user.subscription }
+    token,
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      subscription: user.subscription
+    }
   });
 });
 
+// 📊 DASHBOARD
 app.get('/api/dashboard', (req, res) => {
-  const token = req.header('Authorization')?.replace('Bearer ', '');
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  
   try {
-    jwt.verify(token, 'supersecret');
+    jwt.verify(token, JWT_SECRET);
+    
+    // Return first user or demo data
+    const user = users[0] || { 
+      email: 'demo@rocket.com', 
+      name: 'Demo User',
+      subscription: { plan: 'pro', status: 'active' }
+    };
+    
     res.json({
-      user: users[0] || { email: 'demo@test.com', subscription: { plan: 'pro' } },
+      success: true,
+      user,
       stats: {
         followers: 24567,
         likes: 1234,
-        actions: 200
+        actionsToday: 200,
+        revenue: '$2,450'
       }
     });
-  } catch {
-    res.status(401).json({ error: 'Invalid token' });
+  } catch (error) {
+    res.status(401).json({ error: 'Invalid or expired token' });
   }
 });
 
-app.listen(3000, () => {
-  console.log('\n🚀 SERVER STARTED!');
-  console.log('🌐 http://localhost:3000');
-  console.log('🧪 Test: http://localhost:3000/api/test');
-  console.log('📱 Login: http://localhost:3000/auth.html');
-  console.log('\n');
-});
-
-const express = require('express');
-const cors = require('cors');
-
-const app = express();
-
-// Vercel fix
-if (process.env.NODE_ENV === 'production') {
-  app.enable('trust proxy');
-}
-
-app.use(cors({ origin: true }));
-app.use(express.json({ limit: '10mb' }));
-app.use(express.static('public'));
-
-// In-memory storage
-let users = [];
-
-// API Routes
-app.get('/api/test', (req, res) => {
-  res.json({ 
-    status: '✅ LIVE ON VERCEL!', 
-    url: req.headers.host,
-    users: users.length 
-  });
-});
-
-app.post('/api/register', async (req, res) => {
-  const { email, password, name } = req.body;
-  
-  if (users.find(u => u.email === email)) {
-    return res.json({ error: 'Email exists' });
-  }
-  
-  const hash = await require('bcryptjs').hash(password, 10);
-  const user = {
-    id: Date.now() + '',
-    email,
-    password: hash,
-    name: name || 'User',
-    plan: 'pro'
-  };
-  
-  users.push(user);
-  const token = require('jsonwebtoken').sign({ id: user.id }, process.env.JWT_SECRET || 'secret');
-  
-  res.json({ token, user });
-});
-
-app.post('/api/login', async (req, res) => {
-  const { email, password } = req.body;
-  const user = users.find(u => u.email === email);
-  
-  if (!user) return res.json({ error: 'User not found' });
-  
-  const bcrypt = require('bcryptjs');
-  const valid = await bcrypt.compare(password, user.password);
-  
-  if (!valid) return res.json({ error: 'Wrong password' });
-  
-  const token = require('jsonwebtoken').sign({ id: user.id }, process.env.JWT_SECRET || 'secret');
-  res.json({ token, user });
-});
-
-app.get('/api/dashboard', (req, res) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  try {
-    require('jsonwebtoken').verify(token, process.env.JWT_SECRET || 'secret');
-    res.json({ 
-      user: users[0] || { email: 'live@vercel.app', plan: 'pro' },
-      stats: { followers: 25000, likes: 1500, revenue: '$2,450' }
-    });
-  } catch {
-    res.status(401).json({ error: 'Invalid token' });
-  }
-});
-
-module.exports = app;  // Vercel serverless export
+// Vercel export (Serverless)
+module.exports = app;
