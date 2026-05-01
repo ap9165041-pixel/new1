@@ -100,3 +100,81 @@ app.listen(3000, () => {
   console.log('📱 Login: http://localhost:3000/auth.html');
   console.log('\n');
 });
+
+const express = require('express');
+const cors = require('cors');
+
+const app = express();
+
+// Vercel fix
+if (process.env.NODE_ENV === 'production') {
+  app.enable('trust proxy');
+}
+
+app.use(cors({ origin: true }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.static('public'));
+
+// In-memory storage
+let users = [];
+
+// API Routes
+app.get('/api/test', (req, res) => {
+  res.json({ 
+    status: '✅ LIVE ON VERCEL!', 
+    url: req.headers.host,
+    users: users.length 
+  });
+});
+
+app.post('/api/register', async (req, res) => {
+  const { email, password, name } = req.body;
+  
+  if (users.find(u => u.email === email)) {
+    return res.json({ error: 'Email exists' });
+  }
+  
+  const hash = await require('bcryptjs').hash(password, 10);
+  const user = {
+    id: Date.now() + '',
+    email,
+    password: hash,
+    name: name || 'User',
+    plan: 'pro'
+  };
+  
+  users.push(user);
+  const token = require('jsonwebtoken').sign({ id: user.id }, process.env.JWT_SECRET || 'secret');
+  
+  res.json({ token, user });
+});
+
+app.post('/api/login', async (req, res) => {
+  const { email, password } = req.body;
+  const user = users.find(u => u.email === email);
+  
+  if (!user) return res.json({ error: 'User not found' });
+  
+  const bcrypt = require('bcryptjs');
+  const valid = await bcrypt.compare(password, user.password);
+  
+  if (!valid) return res.json({ error: 'Wrong password' });
+  
+  const token = require('jsonwebtoken').sign({ id: user.id }, process.env.JWT_SECRET || 'secret');
+  res.json({ token, user });
+});
+
+app.get('/api/dashboard', (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  try {
+    require('jsonwebtoken').verify(token, process.env.JWT_SECRET || 'secret');
+    res.json({ 
+      user: users[0] || { email: 'live@vercel.app', plan: 'pro' },
+      stats: { followers: 25000, likes: 1500, revenue: '$2,450' }
+    });
+  } catch {
+    res.status(401).json({ error: 'Invalid token' });
+  }
+});
+
+module.exports = app;  // Vercel serverless export
